@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go-fiber/model"
 	"log"
+	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,8 +21,7 @@ func main() {
 	app := fiber.New()
 	app.Use(recover.New())
 
-	uri := "mongodb+srv://admin:poiuytrewq@oxbidkrub.zgesmxt.mongodb.net/?retryWrites=true&w=majority"
-
+	uri := os.Getenv("MONGODB_URI")
 	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(uri))
 
 	if err != nil {
@@ -54,7 +54,7 @@ func main() {
 		objID, _ := primitive.ObjectIDFromHex(id)
 		fmt.Println((objID))
 		if err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&product); err != nil {
-			return c.JSON("No document")
+			return c.Status(fiber.StatusNotFound).JSON(model.Response{Message: "Product id not found"})
 		}
 		return c.JSON(product)
 	})
@@ -64,20 +64,27 @@ func main() {
 		var product model.Product
 		if err := c.BodyParser(&product); err != nil {
 			fmt.Print(err)
-			return c.JSON("Failed to bind")
+			return c.Status(fiber.StatusBadRequest).JSON(model.Response{Message: "Bad Request"})
 
 		}
-		_, err := collection.InsertOne(ctx, bson.D{
-			{Key: "name", Value: product.Name},
-			{Key: "price", Value: product.Price},
-			{Key: "description", Value: product.Description},
-		})
+		// _, err := collection.InsertOne(ctx, bson.D{
+		// 	{Key: "name", Value: product.Name},
+		// 	{Key: "price", Value: product.Price},
+		// 	{Key: "description", Value: product.Description},
+		// })
+
+		// _, err := collection.InsertOne(ctx, bson.M{
+		// 	"name":        product.Name,
+		// 	"price":       product.Price,
+		// 	"description": product.Description,
+		// })
+		_, err := collection.InsertOne(ctx, product)
 
 		if err != nil {
-			return c.JSON("Error write to DB")
+			return c.Status(fiber.StatusInternalServerError).JSON(model.Response{Message: "Cant create product"})
 		}
 
-		return c.JSON("Write Complete")
+		return c.JSON(product)
 		// var product bson.M
 
 	})
@@ -88,16 +95,14 @@ func main() {
 		var product model.Product
 		if err := c.BodyParser(&product); err != nil {
 			fmt.Print(err)
-			return c.JSON("Failed to bind")
+			return c.Status(fiber.StatusBadRequest).JSON(model.Response{Message: "Bad Request"})
 
 		}
 		objID, _ := primitive.ObjectIDFromHex(id)
 		fmt.Println(objID)
 
-		update := bson.D{
-			{"$set", bson.D{{"name", product.Name}}},
-			{"$set", bson.D{{"price", product.Price}}},
-			{"$set", bson.D{{"description", product.Description}}},
+		update := bson.M{
+			"$set": product,
 		}
 		_, err := collection.UpdateOne(
 			ctx,
@@ -105,10 +110,10 @@ func main() {
 			update,
 		)
 		if err != nil {
-			return c.JSON("Cant update")
+			return c.Status(fiber.StatusInternalServerError).JSON(model.Response{Message: "Cant update item"})
 		}
 
-		return c.JSON("Update complete")
+		return c.JSON(model.Response{Message: "Update complete"})
 
 	})
 	app.Delete("/product/:id", func(c *fiber.Ctx) error {
@@ -117,12 +122,17 @@ func main() {
 		// var product bson.M
 		objID, _ := primitive.ObjectIDFromHex(id)
 
-		fmt.Println(objID)
-		if _, err := collection.DeleteOne(ctx, bson.M{"_id": objID}); err != nil {
-			return c.JSON("No document")
+		res, err := collection.DeleteOne(ctx, bson.M{"_id": objID})
+
+		fmt.Println(err)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(model.Response{Message: "Error delete item"})
+		}
+		if res.DeletedCount == 0 {
+			return c.Status(fiber.StatusNotFound).JSON(model.Response{Message: "Error delete item"})
 		}
 
-		return c.JSON("Finish delete")
+		return c.JSON(model.Response{Message: "Delete item completed"})
 	})
 
 	app.Listen(":8000")
